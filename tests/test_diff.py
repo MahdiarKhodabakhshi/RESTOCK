@@ -1,4 +1,4 @@
-from graphql import build_schema
+from graphql import build_schema, find_breaking_changes
 
 from restock.schema.diff import Change, ChangeKind, diff_schemas, reachable_types
 
@@ -108,6 +108,12 @@ def test_stricter_output_and_looser_input_are_not_changes():
     new = build_schema("type Query { a(x: Int, y: [Int]): String!, b: [String!]! }")
 
     assert diff_schemas(old, new) == []
+
+
+def test_breaking_changes_agree_with_graphql_core():
+    ours = [change for change in diff_schemas(OLD, NEW) if change.breaking]
+
+    assert len(ours) == len(find_breaking_changes(OLD, NEW))
 
 
 def test_marks_changes_reachable_from_query():
