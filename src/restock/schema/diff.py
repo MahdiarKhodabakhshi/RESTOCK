@@ -18,6 +18,7 @@ from graphql import (
     GraphQLSchema,
     GraphQLType,
     get_named_type,
+    is_enum_type,
     is_input_object_type,
     is_interface_type,
     is_list_type,
@@ -33,6 +34,8 @@ class ChangeKind(StrEnum):
     TYPE_REMOVED = "type_removed"
     TYPE_KIND_CHANGED = "type_kind_changed"
     INTERFACE_REMOVED = "interface_removed"
+    UNION_MEMBER_REMOVED = "union_member_removed"
+    ENUM_VALUE_REMOVED = "enum_value_removed"
     FIELD_REMOVED = "field_removed"
     FIELD_TYPE_CHANGED = "field_type_changed"
     ARG_REMOVED = "arg_removed"
@@ -51,7 +54,7 @@ class Change:
     kind: ChangeKind
     type_name: str
     member: str | None = None
-    """Field, input field or interface name."""
+    """Field, input field, enum value, union member or interface name."""
     argument: str | None = None
     query_side: bool = False
     """Whether the type is reachable from the ``Query`` root."""
@@ -122,7 +125,14 @@ def _user_types(schema: GraphQLSchema) -> dict[str, GraphQLNamedType]:
 
 
 def _diff_type(old: GraphQLNamedType, new: GraphQLNamedType) -> _Diff:
-    if is_input_object_type(old):
+    if is_enum_type(old):
+        yield from _diff_enum_values(old.values, new.values)
+    elif is_union_type(old):
+        new_members = {member.name for member in new.types}
+        for member in old.types:
+            if member.name not in new_members:
+                yield ChangeKind.UNION_MEMBER_REMOVED, member.name, None
+    elif is_input_object_type(old):
         yield from _diff_input_fields(old.fields, new.fields)
     elif is_object_type(old) or is_interface_type(old):
         new_interfaces = {interface.name for interface in new.interfaces}
@@ -130,6 +140,12 @@ def _diff_type(old: GraphQLNamedType, new: GraphQLNamedType) -> _Diff:
             if interface.name not in new_interfaces:
                 yield ChangeKind.INTERFACE_REMOVED, interface.name, None
         yield from _diff_fields(old.fields, new.fields)
+
+
+def _diff_enum_values(old: dict, new: dict) -> _Diff:
+    for name in old:
+        if name not in new:
+            yield ChangeKind.ENUM_VALUE_REMOVED, name, None
 
 
 def _diff_fields(old: dict[str, GraphQLField], new: dict[str, GraphQLField]) -> _Diff:
