@@ -13,6 +13,7 @@ from enum import StrEnum
 from graphql import (
     GraphQLArgument,
     GraphQLField,
+    GraphQLInputField,
     GraphQLNamedType,
     GraphQLSchema,
     GraphQLType,
@@ -23,6 +24,7 @@ from graphql import (
     is_non_null_type,
     is_object_type,
     is_required_argument,
+    is_required_input_field,
     is_union_type,
 )
 
@@ -36,6 +38,7 @@ class ChangeKind(StrEnum):
     ARG_REMOVED = "arg_removed"
     ARG_TYPE_CHANGED = "arg_type_changed"
     REQUIRED_ARG_ADDED = "required_arg_added"
+    REQUIRED_INPUT_FIELD_ADDED = "required_input_field_added"
     TYPE_ADDED = "type_added"
     FIELD_ADDED = "field_added"
 
@@ -48,7 +51,7 @@ class Change:
     kind: ChangeKind
     type_name: str
     member: str | None = None
-    """Field or interface name."""
+    """Field, input field or interface name."""
     argument: str | None = None
     query_side: bool = False
     """Whether the type is reachable from the ``Query`` root."""
@@ -119,7 +122,9 @@ def _user_types(schema: GraphQLSchema) -> dict[str, GraphQLNamedType]:
 
 
 def _diff_type(old: GraphQLNamedType, new: GraphQLNamedType) -> _Diff:
-    if is_object_type(old) or is_interface_type(old):
+    if is_input_object_type(old):
+        yield from _diff_input_fields(old.fields, new.fields)
+    elif is_object_type(old) or is_interface_type(old):
         new_interfaces = {interface.name for interface in new.interfaces}
         for interface in old.interfaces:
             if interface.name not in new_interfaces:
@@ -153,6 +158,22 @@ def _diff_args(
     for name in new.keys() - old.keys():
         if is_required_argument(new[name]):
             yield ChangeKind.REQUIRED_ARG_ADDED, name
+
+
+def _diff_input_fields(
+    old: dict[str, GraphQLInputField], new: dict[str, GraphQLInputField]
+) -> _Diff:
+    for name, old_field in old.items():
+        new_field = new.get(name)
+        if new_field is None:
+            yield ChangeKind.FIELD_REMOVED, name, None
+        elif not _input_change_is_safe(old_field.type, new_field.type):
+            yield ChangeKind.FIELD_TYPE_CHANGED, name, None
+    for name in new.keys() - old.keys():
+        if is_required_input_field(new[name]):
+            yield ChangeKind.REQUIRED_INPUT_FIELD_ADDED, name, None
+        else:
+            yield ChangeKind.FIELD_ADDED, name, None
 
 
 def _output_change_is_safe(old: GraphQLType, new: GraphQLType) -> bool:

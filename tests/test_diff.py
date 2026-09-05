@@ -95,6 +95,10 @@ def test_reports_each_change_at_its_coordinate():
         "Product.media": {ChangeKind.FIELD_REMOVED},
         "Product.state": {ChangeKind.FIELD_ADDED},
         "Media": {ChangeKind.TYPE_REMOVED},
+        "ProductFilter.search": {ChangeKind.FIELD_TYPE_CHANGED},
+        "ProductFilter.isPublished": {ChangeKind.FIELD_REMOVED},
+        "ProductFilter.stock": {ChangeKind.REQUIRED_INPUT_FIELD_ADDED},
+        "ProductFilter.ids": {ChangeKind.FIELD_ADDED},
     }
 
 
@@ -109,6 +113,7 @@ def test_marks_changes_reachable_from_query():
     by_coordinate = {change.coordinate: change for change in diff_schemas(OLD, NEW)}
 
     assert by_coordinate["Product.media"].query_side
+    assert by_coordinate["ProductFilter.isPublished"].query_side
     assert not by_coordinate["Mutation.tokenCreate"].query_side
     assert not by_coordinate["Token"].query_side
 
