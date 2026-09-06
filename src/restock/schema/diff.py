@@ -42,11 +42,12 @@ class ChangeKind(StrEnum):
     ARG_TYPE_CHANGED = "arg_type_changed"
     REQUIRED_ARG_ADDED = "required_arg_added"
     REQUIRED_INPUT_FIELD_ADDED = "required_input_field_added"
+    DEPRECATED = "deprecated"
     TYPE_ADDED = "type_added"
     FIELD_ADDED = "field_added"
 
 
-NON_BREAKING = frozenset({ChangeKind.TYPE_ADDED, ChangeKind.FIELD_ADDED})
+NON_BREAKING = frozenset({ChangeKind.DEPRECATED, ChangeKind.TYPE_ADDED, ChangeKind.FIELD_ADDED})
 
 
 @dataclass(frozen=True)
@@ -143,9 +144,12 @@ def _diff_type(old: GraphQLNamedType, new: GraphQLNamedType) -> _Diff:
 
 
 def _diff_enum_values(old: dict, new: dict) -> _Diff:
-    for name in old:
-        if name not in new:
+    for name, old_value in old.items():
+        new_value = new.get(name)
+        if new_value is None:
             yield ChangeKind.ENUM_VALUE_REMOVED, name, None
+        elif _newly_deprecated(old_value, new_value):
+            yield ChangeKind.DEPRECATED, name, None
 
 
 def _diff_fields(old: dict[str, GraphQLField], new: dict[str, GraphQLField]) -> _Diff:
@@ -156,6 +160,8 @@ def _diff_fields(old: dict[str, GraphQLField], new: dict[str, GraphQLField]) -> 
             continue
         if not _output_change_is_safe(old_field.type, new_field.type):
             yield ChangeKind.FIELD_TYPE_CHANGED, name, None
+        if _newly_deprecated(old_field, new_field):
+            yield ChangeKind.DEPRECATED, name, None
         for kind, argument in _diff_args(old_field.args, new_field.args):
             yield kind, name, argument
     for name in new.keys() - old.keys():
@@ -171,6 +177,8 @@ def _diff_args(
             yield ChangeKind.ARG_REMOVED, name
         elif not _input_change_is_safe(old_arg.type, new_arg.type):
             yield ChangeKind.ARG_TYPE_CHANGED, name
+        elif _newly_deprecated(old_arg, new_arg):
+            yield ChangeKind.DEPRECATED, name
     for name in new.keys() - old.keys():
         if is_required_argument(new[name]):
             yield ChangeKind.REQUIRED_ARG_ADDED, name
@@ -185,11 +193,17 @@ def _diff_input_fields(
             yield ChangeKind.FIELD_REMOVED, name, None
         elif not _input_change_is_safe(old_field.type, new_field.type):
             yield ChangeKind.FIELD_TYPE_CHANGED, name, None
+        elif _newly_deprecated(old_field, new_field):
+            yield ChangeKind.DEPRECATED, name, None
     for name in new.keys() - old.keys():
         if is_required_input_field(new[name]):
             yield ChangeKind.REQUIRED_INPUT_FIELD_ADDED, name, None
         else:
             yield ChangeKind.FIELD_ADDED, name, None
+
+
+def _newly_deprecated(old, new) -> bool:
+    return old.deprecation_reason is None and new.deprecation_reason is not None
 
 
 def _output_change_is_safe(old: GraphQLType, new: GraphQLType) -> bool:

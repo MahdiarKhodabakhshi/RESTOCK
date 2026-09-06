@@ -93,6 +93,7 @@ def test_reports_each_change_at_its_coordinate():
         "Product.name": {ChangeKind.FIELD_TYPE_CHANGED},
         "Product.price": {ChangeKind.FIELD_TYPE_CHANGED},
         "Product.media": {ChangeKind.FIELD_REMOVED},
+        "Product.status": {ChangeKind.DEPRECATED},
         "Product.state": {ChangeKind.FIELD_ADDED},
         "Media": {ChangeKind.TYPE_REMOVED},
         "ProductStatus.ARCHIVED": {ChangeKind.ENUM_VALUE_REMOVED},
