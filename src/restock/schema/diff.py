@@ -118,6 +118,53 @@ def reachable_types(schema: GraphQLSchema, root: GraphQLNamedType | None) -> fro
     return frozenset(seen)
 
 
+@dataclass(frozen=True)
+class Density:
+    """How much of the query side of a schema a set of changes touches."""
+
+    fields: int
+    broken: int
+    deprecated: int
+    added: int
+
+    @property
+    def broken_share(self) -> float:
+        return self.broken / self.fields if self.fields else 0.0
+
+
+def query_density(old: GraphQLSchema, changes: list[Change]) -> Density:
+    """Count the fields reachable from ``Query`` in ``old`` and how many of them changed.
+
+    A field counts as broken if it was removed, changed type, had an argument
+    broken, or belongs to a type that was removed or changed kind.
+    """
+    fields = {
+        (name, field)
+        for name in reachable_types(old, old.query_type)
+        for field in getattr(old.type_map[name], "fields", {})
+    }
+    lost_types = {
+        change.type_name
+        for change in changes
+        if change.kind in (ChangeKind.TYPE_REMOVED, ChangeKind.TYPE_KIND_CHANGED)
+    }
+    touched = {
+        kind: {(c.type_name, c.member) for c in changes if c.query_side and select(c)}
+        for kind, select in (
+            ("broken", lambda c: c.breaking),
+            ("deprecated", lambda c: c.kind is ChangeKind.DEPRECATED),
+            ("added", lambda c: c.kind is ChangeKind.FIELD_ADDED),
+        )
+    }
+    broken = {field for field in fields if field in touched["broken"] or field[0] in lost_types}
+    return Density(
+        fields=len(fields),
+        broken=len(broken),
+        deprecated=len(fields & touched["deprecated"]),
+        added=len(touched["added"]),
+    )
+
+
 _Diff = Iterator[tuple[ChangeKind, str | None, str | None]]
 
 

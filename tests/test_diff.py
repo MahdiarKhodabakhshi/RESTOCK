@@ -1,6 +1,12 @@
 from graphql import build_schema, find_breaking_changes
 
-from restock.schema.diff import Change, ChangeKind, diff_schemas, reachable_types
+from restock.schema.diff import (
+    Change,
+    ChangeKind,
+    diff_schemas,
+    query_density,
+    reachable_types,
+)
 
 OLD = build_schema("""
 type Query {
@@ -133,6 +139,19 @@ def test_reachable_types_follow_interfaces_and_arguments():
         "ID", "String", "Int", "Float", "Boolean",
     }  # fmt: skip
     assert reachable_types(OLD, None) == frozenset()
+
+
+def test_query_density_counts_fields_touched_on_the_query_side():
+    density = query_density(OLD, diff_schemas(OLD, NEW))
+
+    # Query 3, Node 1, Product 6, Money 2, Media 1, ProductFilter 2
+    assert density.fields == 15
+    # Query.product, Query.products, Product.name/price/media, Media.url,
+    # ProductFilter.search/isPublished
+    assert density.broken == 8
+    assert density.deprecated == 1
+    assert density.added == 2
+    assert density.broken_share == 8 / 15
 
 
 def test_change_coordinate_formats():
