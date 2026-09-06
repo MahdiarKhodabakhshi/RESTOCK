@@ -41,3 +41,11 @@ def fetch_schema(
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(response.text, encoding="utf-8")
     return path
+
+
+def load_schema(version: str, root: Path = DEFAULT_ROOT) -> str:
+    """Return the schema SDL for a version that has already been fetched."""
+    path = schema_path(version, root)
+    if not path.exists():
+        raise FileNotFoundError(f"{path} not found; run `restock fetch {version}` first")
+    return path.read_text(encoding="utf-8")

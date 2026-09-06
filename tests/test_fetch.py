@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from restock.schema.fetch import fetch_schema, schema_path
+from restock.schema.fetch import fetch_schema, load_schema, schema_path
 
 SDL = "type Query { ping: String }\n"
 
@@ -51,3 +51,8 @@ def test_fetch_raises_for_unknown_tag(tmp_path):
         fetch_schema("0.0.0", tmp_path, client=make_client([], status=404))
 
     assert not schema_path("0.0.0", tmp_path).exists()
+
+
+def test_load_schema_requires_a_fetched_version(tmp_path):
+    with pytest.raises(FileNotFoundError, match="restock fetch 3.23.0"):
+        load_schema("3.23.0", tmp_path)
