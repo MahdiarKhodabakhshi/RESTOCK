@@ -26,6 +26,7 @@ from graphql import (
     is_object_type,
     is_required_argument,
     is_required_input_field,
+    is_specified_scalar_type,
     is_union_type,
 )
 
@@ -169,7 +170,13 @@ _Diff = Iterator[tuple[ChangeKind, str | None, str | None]]
 
 
 def _user_types(schema: GraphQLSchema) -> dict[str, GraphQLNamedType]:
-    return {name: t for name, t in schema.type_map.items() if not name.startswith("__")}
+    # Built-in scalars drop out of the type map once nothing refers to them,
+    # which is a side effect of another change and not a change in itself.
+    return {
+        name: type_
+        for name, type_ in schema.type_map.items()
+        if not name.startswith("__") and not is_specified_scalar_type(type_)
+    }
 
 
 def _diff_type(old: GraphQLNamedType, new: GraphQLNamedType) -> _Diff:

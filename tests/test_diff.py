@@ -117,6 +117,13 @@ def test_stricter_output_and_looser_input_are_not_changes():
     assert diff_schemas(old, new) == []
 
 
+def test_unreferenced_builtin_scalar_is_not_a_removed_type():
+    old = build_schema("type Query { price: Float, name: String }")
+    new = build_schema("type Query { name: String }")
+
+    assert changes_by_coordinate(old, new) == {"Query.price": {ChangeKind.FIELD_REMOVED}}
+
+
 def test_breaking_changes_agree_with_graphql_core():
     ours = [change for change in diff_schemas(OLD, NEW) if change.breaking]
 
