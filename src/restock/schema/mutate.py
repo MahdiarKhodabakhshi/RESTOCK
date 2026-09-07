@@ -1,14 +1,31 @@
 """Simulated API changes.
 
 Training needs many more schema versions than Saleor has released. A mutation
-renames or removes a field in the schema the agent sees.
+renames or removes a field in the schema the agent sees, while the server keeps
+running the real one: queries written against the mutated schema are validated
+against it and then rewritten back before they are executed.
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from random import Random
 
-from graphql import DocumentNode, GraphQLSchema, NameNode, ObjectTypeDefinitionNode, is_object_type
+from graphql import (
+    DocumentNode,
+    FieldNode,
+    GraphQLError,
+    GraphQLSchema,
+    NameNode,
+    ObjectTypeDefinitionNode,
+    TypeInfo,
+    TypeInfoVisitor,
+    Visitor,
+    is_object_type,
+    parse,
+    print_ast,
+    validate,
+    visit,
+)
 
 from restock.schema.diff import reachable_types
 
@@ -29,6 +46,14 @@ class Remove:
 
 
 Mutation = Rename | Remove
+
+
+class InvalidQuery(ValueError):
+    """The query does not validate against the schema it was written for."""
+
+    def __init__(self, errors: Sequence[GraphQLError]):
+        super().__init__("; ".join(error.message for error in errors))
+        self.errors = list(errors)
 
 
 def mutable_fields(schema: GraphQLSchema) -> list[tuple[str, str]]:
@@ -105,3 +130,38 @@ def apply_mutations(document: DocumentNode, mutations: Iterable[Mutation]) -> Do
     if by_type:
         raise KeyError(f"no such object type: {', '.join(by_type)}")
     return replace(document, definitions=tuple(definitions))
+
+
+def rewrite_query(query: str, mutated: GraphQLSchema, mutations: Iterable[Mutation]) -> str:
+    """Translate a query written against the mutated schema into one for the real schema.
+
+    Renamed fields get their original name back and an alias, so the response
+    has the keys the query asked for.
+
+    Raises:
+        InvalidQuery: the query is not valid on the mutated schema, for example
+            because it selects a removed field or uses a pre-rename name.
+    """
+    document = parse(query)
+    errors = validate(mutated, document)
+    if errors:
+        raise InvalidQuery(errors)
+
+    originals = {
+        (mutation.type_name, mutation.new_name): mutation.field
+        for mutation in mutations
+        if isinstance(mutation, Rename)
+    }
+    type_info = TypeInfo(mutated)
+
+    class RestoreNames(Visitor):
+        # Runs on leave so that nested selections are still resolved against the
+        # mutated schema while the visitor is inside the renamed field.
+        def leave_field(self, node: FieldNode, *_):
+            parent = type_info.get_parent_type()
+            original = originals.get((parent.name, node.name.value)) if parent else None
+            if original is None:
+                return None
+            return replace(node, name=NameNode(value=original), alias=node.alias or node.name)
+
+    return print_ast(visit(document, TypeInfoVisitor(type_info, RestoreNames())))
