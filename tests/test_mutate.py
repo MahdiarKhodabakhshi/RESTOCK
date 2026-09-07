@@ -1,8 +1,10 @@
+from random import Random
+
 import pytest
 from graphql import build_ast_schema, parse
 
 from restock.schema.diff import ChangeKind, diff_schemas
-from restock.schema.mutate import Remove, Rename, apply_mutations
+from restock.schema.mutate import Remove, Rename, apply_mutations, mutable_fields, sample_mutations
 
 SDL = """
 type Query {
@@ -47,6 +49,15 @@ MUTATIONS = [
 MUTATED = build_ast_schema(apply_mutations(DOCUMENT, MUTATIONS))
 
 
+def test_mutable_fields_skip_interface_fields_and_the_mutation_side():
+    fields = mutable_fields(BASE)
+
+    assert ("Product", "name") in fields
+    assert ("Query", "product") in fields
+    assert ("Product", "id") not in fields
+    assert not {type_name for type_name, _ in fields} & {"Node", "Mutation", "Token"}
+
+
 def test_apply_mutations_changes_only_the_named_fields():
     changes = {(c.kind, c.coordinate) for c in diff_schemas(BASE, MUTATED)}
 
@@ -68,3 +79,23 @@ def test_apply_mutations_changes_only_the_named_fields():
 def test_apply_mutations_rejects_unknown_targets(mutation):
     with pytest.raises(KeyError, match="[Mm]issing"):
         apply_mutations(DOCUMENT, [mutation])
+
+
+@pytest.mark.parametrize("seed", range(20))
+def test_sampled_mutations_produce_exactly_the_declared_changes(seed):
+    mutations = sample_mutations(BASE, Random(seed), renames=3, removals=2)
+
+    mutated = build_ast_schema(apply_mutations(DOCUMENT, mutations))
+
+    expected = set()
+    for mutation in mutations:
+        expected.add((ChangeKind.FIELD_REMOVED, f"{mutation.type_name}.{mutation.field}"))
+        if isinstance(mutation, Rename):
+            expected.add((ChangeKind.FIELD_ADDED, f"{mutation.type_name}.{mutation.new_name}"))
+    assert {(c.kind, c.coordinate) for c in diff_schemas(BASE, mutated)} == expected
+    assert len({(m.type_name, m.field) for m in mutations}) == 5
+
+
+def test_sample_mutations_never_empties_a_type():
+    with pytest.raises(ValueError, match="too few"):
+        sample_mutations(BASE, Random(0), removals=len(mutable_fields(BASE)))
