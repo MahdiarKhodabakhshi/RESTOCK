@@ -5,6 +5,7 @@ own API process. The database of a later release is a copy of an earlier one
 with that release's migrations applied, so all versions serve the same store.
 """
 
+import json
 import os
 import secrets
 import signal
@@ -19,6 +20,12 @@ import httpx
 SALEOR_IMAGE = "docker://ghcr.io/saleor/saleor:{version}"
 POSTGRES_IMAGE = "docker://postgres:15-alpine"
 DB_USER = "saleor"
+APP_NAME = "restock"
+
+LIST_PERMISSIONS = (
+    "from saleor.permission.enums import get_permissions_enum_list;"
+    "print(' '.join(name for name, _ in get_permissions_enum_list()))"
+)
 
 
 def api_port(version: str) -> int:
@@ -102,6 +109,18 @@ class Runtime:
     def manage(self, version: str, *args: str) -> str:
         """Run a Django management command of a release and return its output."""
         return _run(self._saleor_argv(version, "python", "manage.py", *args), self._env(version))
+
+    def create_app_token(self, version: str) -> str:
+        """Register an app with every permission and store its API token."""
+        permissions = self.manage(version, "shell", "-c", LIST_PERMISSIONS).split()
+        flags = [arg for name in permissions for arg in ("--permission", name)]
+        output = self.manage(version, "create_app", APP_NAME, "--activate", *flags)
+        token = json.loads(output.strip().splitlines()[-1])["auth_token"]
+        _write_private(self.run / "app_token", token)
+        return token
+
+    def token(self) -> str:
+        return (self.run / "app_token").read_text()
 
     def start_api(self, version: str, workers: int = 4) -> str:
         """Serve a release and return its GraphQL endpoint."""
