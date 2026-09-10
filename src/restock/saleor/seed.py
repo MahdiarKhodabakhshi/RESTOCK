@@ -1,8 +1,9 @@
 """Grow the sample store that ``populatedb`` creates.
 
-The stock sample has 32 products, which leaves most filters and aggregates with
-almost nothing to return. Products are added through the API from a seeded plan,
-so a rebuilt store has the same catalogue.
+The stock sample has 32 products, 20 customers and 20 orders, which leaves most
+filters and aggregates with almost nothing to return. Products are added through
+the API from a seeded plan, so a rebuilt store has the same catalogue. Customers
+and orders come from Saleor's own generators.
 """
 
 from dataclasses import dataclass
@@ -111,6 +112,29 @@ mutation ($product: ID!, $variants: [ProductVariantBulkCreateInput!]!) {
     errors { field message }
   }
 }
+"""
+
+# Runs in Saleor's Django shell. Orders are spread over the eighteen months before
+# a fixed date so that questions about periods have something to tell apart.
+GROW_ACCOUNTS = """
+import random
+from datetime import datetime, timedelta, timezone
+from faker import Faker
+from saleor.account.models import User
+from saleor.core.utils import random_data
+from saleor.order.models import Order
+
+random.seed({seed})
+Faker.seed({seed})
+list(random_data.create_users("password", {customers}))
+list(random_data.create_orders({orders}))
+
+end = datetime(2026, 9, 1, tzinfo=timezone.utc)
+moment = lambda: end - timedelta(minutes=random.randrange(540 * 24 * 60))
+for pk in User.objects.filter(is_staff=False).order_by("pk").values_list("pk", flat=True):
+    User.objects.filter(pk=pk).update(date_joined=moment())
+for pk in Order.objects.order_by("pk").values_list("pk", flat=True):
+    Order.objects.filter(pk=pk).update(created_at=moment())
 """
 
 
