@@ -30,8 +30,9 @@ real and queries can be executed.
 
 ## What is in this repository
 
-The environment side of the method: the schema history, the simulated versions
-and the reward. Model training is not part of this code.
+The environment side of the method: the schema history, the simulated versions,
+the reward and a local Saleor that serves one store from several releases.
+Model training is not part of this code.
 
 | Module | What it does |
 | --- | --- |
@@ -39,6 +40,10 @@ and the reward. Model training is not part of this code.
 | `restock.schema.diff` | Structured diff of two schema versions, with reachability from `Query` |
 | `restock.schema.mutate` | Simulated versions: rename and remove fields, rewrite queries back to the real schema |
 | `restock.reward` | Episode reward and result comparison |
+| `restock.saleor.runtime` | Runs Postgres and Saleor releases with Apptainer |
+| `restock.saleor.seed` | Adds products, customers and orders to the sample store |
+| `restock.saleor.build` | Builds the store once and upgrades a copy for each later release |
+| `restock.saleor.client` | Executes GraphQL operations against a release |
 
 ## How much does the API really change?
 
@@ -98,4 +103,33 @@ mutated = build_ast_schema(apply_mutations(document, mutations))
 
 # Raises InvalidQuery if the query uses a field the mutated version no longer has.
 query_for_saleor = rewrite_query(agent_query, mutated, mutations)
+```
+
+## Local Saleor
+
+Queries are executed against real Saleor releases. They run with
+[Apptainer](https://apptainer.org), so neither Docker nor root is needed.
+
+```bash
+uv run restock saleor build 3.20 3.21 3.22 3.23   # about ten minutes
+uv run restock saleor up 3.20 3.23
+uv run restock saleor status
+uv run restock saleor down
+```
+
+`build` creates the sample store on the first release, adds products, customers
+and orders to it, and then upgrades a copy of the database for each later
+release. Every release therefore serves the same store, and a query gives a
+different answer on two of them only when the API itself changed:
+
+```python
+from restock.saleor.client import SaleorClient
+from restock.saleor.runtime import Runtime, api_url
+
+token = Runtime().token()
+query = "{ digitalContents(first: 1) { totalCount } }"
+
+SaleorClient(api_url("3.22"), token).execute(query).ok  # True
+SaleorClient(api_url("3.23"), token).execute(query).messages
+# ['Cannot query field "digitalContents" on type "Query".']
 ```
