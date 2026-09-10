@@ -5,6 +5,8 @@ from pathlib import Path
 import httpx
 from graphql import build_schema
 
+from restock.saleor.build import build_store
+from restock.saleor.runtime import Runtime
 from restock.schema.diff import diff_schemas, query_density
 from restock.schema.fetch import DEFAULT_ROOT, fetch_schema, load_schema
 
@@ -38,6 +40,38 @@ def _diff(args: argparse.Namespace) -> int:
     return 0
 
 
+def _saleor_build(args: argparse.Namespace) -> int:
+    build_store(Runtime(args.data), args.versions, seed=args.seed)
+    return 0
+
+
+def _saleor_up(args: argparse.Namespace) -> int:
+    runtime = Runtime(args.data)
+    runtime.start_postgres()
+    for version in args.versions:
+        print(f"{version}  {runtime.start_api(version, args.workers)}")
+    return 0
+
+
+def _saleor_down(args: argparse.Namespace) -> int:
+    runtime = Runtime(args.data)
+    if args.versions:
+        for version in args.versions:
+            runtime.stop_api(version)
+        return 0
+    for name in runtime.running():
+        if name.startswith("api_"):
+            runtime.stop_api(name.removeprefix("api_"))
+    runtime.stop_postgres()
+    return 0
+
+
+def _saleor_status(args: argparse.Namespace) -> int:
+    for name in Runtime(args.data).running():
+        print(name)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="restock")
     parser.add_argument(
@@ -56,6 +90,27 @@ def build_parser() -> argparse.ArgumentParser:
     diff.add_argument("versions", nargs="+", metavar="VERSION")
     diff.add_argument("-v", "--verbose", action="store_true", help="list each breaking change")
     diff.set_defaults(run=_diff)
+
+    saleor = commands.add_parser("saleor", help="run Saleor releases locally")
+    saleor.add_argument("--data", type=Path, default=Path("data"), help="runtime directory")
+    actions = saleor.add_subparsers(dest="action", required=True)
+
+    build = actions.add_parser("build", help="create the store and upgrade it through releases")
+    build.add_argument("versions", nargs="+", metavar="VERSION", help="releases, oldest first")
+    build.add_argument("--seed", type=int, default=0)
+    build.set_defaults(run=_saleor_build)
+
+    up = actions.add_parser("up", help="serve releases that have been built")
+    up.add_argument("versions", nargs="+", metavar="VERSION")
+    up.add_argument("--workers", type=int, default=4)
+    up.set_defaults(run=_saleor_up)
+
+    down = actions.add_parser("down", help="stop the given releases, or everything")
+    down.add_argument("versions", nargs="*", metavar="VERSION")
+    down.set_defaults(run=_saleor_down)
+
+    status = actions.add_parser("status", help="list running processes")
+    status.set_defaults(run=_saleor_status)
 
     return parser
 
