@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from random import Random
 from typing import Any
 
+from restock.saleor.client import Result, SaleorClient
+
 
 @dataclass(frozen=True)
 class Line:
@@ -78,6 +80,60 @@ class ProductPlan:
     variants: list[dict[str, Any]]
 
 
+STORE_QUERY = """
+{
+  categories(first: 100) { edges { node { id name } } }
+  productTypes(first: 100) { edges { node { id name } } }
+  attributes(first: 100) {
+    edges { node { id slug choices(first: 100) { edges { node { slug } } } } }
+  }
+  channels { id slug currencyCode }
+  warehouses(first: 100) { edges { node { id } } }
+}
+"""
+
+CREATE_PRODUCT = """
+mutation ($input: ProductCreateInput!) {
+  productCreate(input: $input) { product { id } errors { field message } }
+}
+"""
+
+LIST_PRODUCT = """
+mutation ($id: ID!, $input: ProductChannelListingUpdateInput!) {
+  productChannelListingUpdate(id: $id, input: $input) { errors { field message } }
+}
+"""
+
+CREATE_VARIANTS = """
+mutation ($product: ID!, $variants: [ProductVariantBulkCreateInput!]!) {
+  productVariantBulkCreate(product: $product, variants: $variants) {
+    count
+    errors { field message }
+  }
+}
+"""
+
+
+def read_store(client: SaleorClient) -> Store:
+    data = _data(client.execute(STORE_QUERY))
+    nodes = lambda key: [edge["node"] for edge in data[key]["edges"]]  # noqa: E731
+    return Store(
+        categories={node["name"]: node["id"] for node in nodes("categories")},
+        product_types={node["name"]: node["id"] for node in nodes("productTypes")},
+        attributes={
+            node["slug"]: Attribute(
+                node["id"], tuple(edge["node"]["slug"] for edge in node["choices"]["edges"])
+            )
+            for node in nodes("attributes")
+        },
+        channels=tuple(
+            Channel(channel["id"], channel["slug"], channel["currencyCode"])
+            for channel in data["channels"]
+        ),
+        warehouses=tuple(node["id"] for node in nodes("warehouses")),
+    )
+
+
 def plan_products(store: Store, count: int, seed: int = 0) -> list[ProductPlan]:
     """Plan ``count`` products spread evenly over the product lines."""
     rng = Random(seed)
@@ -91,6 +147,21 @@ def plan_products(store: Store, count: int, seed: int = 0) -> list[ProductPlan]:
         names.add(name)
         plans.append(_plan_product(store, line, name, len(plans) + 1, rng))
     return plans
+
+
+def create_products(client: SaleorClient, plans: list[ProductPlan]) -> None:
+    for plan in plans:
+        created = _data(client.execute(CREATE_PRODUCT, {"input": plan.product}))["productCreate"]
+        _raise_for_errors(created, plan.product["name"])
+        product_id = created["product"]["id"]
+
+        listing = {"id": product_id, "input": {"updateChannels": plan.listings}}
+        listed = _data(client.execute(LIST_PRODUCT, listing))["productChannelListingUpdate"]
+        _raise_for_errors(listed, plan.product["name"])
+
+        variants = {"product": product_id, "variants": plan.variants}
+        added = _data(client.execute(CREATE_VARIANTS, variants))["productVariantBulkCreate"]
+        _raise_for_errors(added, plan.product["name"])
 
 
 def _plan_product(store: Store, line: Line, name: str, number: int, rng: Random) -> ProductPlan:
@@ -168,3 +239,15 @@ def _attribute_value(attribute: Attribute, choice: str) -> dict[str, Any]:
 
 def _convert(usd: float, currency: str) -> float:
     return round(usd * EXCHANGE_RATES.get(currency, 1.0), 2)
+
+
+def _data(result: Result) -> dict[str, Any]:
+    if not result.ok:
+        raise RuntimeError("; ".join(result.messages))
+    return result.data
+
+
+def _raise_for_errors(payload: dict[str, Any], name: str) -> None:
+    if payload["errors"]:
+        details = "; ".join(f"{e['field']}: {e['message']}" for e in payload["errors"])
+        raise RuntimeError(f"{name}: {details}")

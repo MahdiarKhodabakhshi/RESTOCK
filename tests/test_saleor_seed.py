@@ -1,4 +1,18 @@
-from restock.saleor.seed import LINES, Attribute, Channel, Store, plan_products
+import json
+
+import httpx
+import pytest
+
+from restock.saleor.client import SaleorClient
+from restock.saleor.seed import (
+    LINES,
+    Attribute,
+    Channel,
+    Store,
+    create_products,
+    plan_products,
+    read_store,
+)
 
 STORE = Store(
     categories={line.category: f"category:{line.category}" for line in LINES},
@@ -80,3 +94,76 @@ def test_stock_includes_sold_out_and_low_quantities():
     assert min(quantities) == 0
     assert any(1 <= quantity <= 5 for quantity in quantities)
     assert max(quantities) > 100
+
+
+def saleor_stub(calls: list[dict], failing: str | None = None) -> SaleorClient:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        calls.append(body)
+        operation = next(
+            name
+            for name in ("productCreate", "productChannelListingUpdate", "productVariantBulkCreate")
+            if name in body["query"]
+        )
+        errors = [{"field": "slug", "message": "taken"}] if operation == failing else []
+        payload = {"errors": errors, "product": {"id": "product:1"}, "count": 1}
+        return httpx.Response(200, json={"data": {operation: payload}})
+
+    return SaleorClient("http://saleor.test/graphql/", transport=httpx.MockTransport(handler))
+
+
+def test_create_products_creates_lists_and_adds_variants():
+    calls: list[dict] = []
+    plans = plan_products(STORE, 2)
+
+    create_products(saleor_stub(calls), plans)
+
+    assert len(calls) == 6
+    assert calls[0]["variables"] == {"input": plans[0].product}
+    assert calls[1]["variables"] == {
+        "id": "product:1",
+        "input": {"updateChannels": plans[0].listings},
+    }
+    assert calls[2]["variables"] == {"product": "product:1", "variants": plans[0].variants}
+    assert calls[3]["variables"] == {"input": plans[1].product}
+
+
+def test_create_products_stops_at_the_first_rejected_mutation():
+    calls: list[dict] = []
+    plans = plan_products(STORE, 2)
+
+    with pytest.raises(RuntimeError, match=f"{plans[0].product['name']}: slug: taken"):
+        create_products(saleor_stub(calls, failing="productChannelListingUpdate"), plans)
+
+    assert len(calls) == 2
+
+
+def test_read_store_collects_ids_by_name():
+    data = {
+        "categories": {"edges": [{"node": {"id": "c1", "name": "Juices"}}]},
+        "productTypes": {"edges": [{"node": {"id": "t1", "name": "Juice"}}]},
+        "attributes": {
+            "edges": [
+                {
+                    "node": {
+                        "id": "a1",
+                        "slug": "flavor",
+                        "choices": {"edges": [{"node": {"slug": "apple"}}]},
+                    }
+                }
+            ]
+        },
+        "channels": [{"id": "ch1", "slug": "default-channel", "currencyCode": "USD"}],
+        "warehouses": {"edges": [{"node": {"id": "w1"}}]},
+    }
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json={"data": data}))
+
+    store = read_store(SaleorClient("http://saleor.test/graphql/", transport=transport))
+
+    assert store == Store(
+        categories={"Juices": "c1"},
+        product_types={"Juice": "t1"},
+        attributes={"flavor": Attribute("a1", ("apple",))},
+        channels=(Channel("ch1", "default-channel", "USD"),),
+        warehouses=("w1",),
+    )
