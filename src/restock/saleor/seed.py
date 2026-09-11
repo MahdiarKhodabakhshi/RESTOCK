@@ -135,6 +135,12 @@ for pk in User.objects.filter(is_staff=False).order_by("pk").values_list("pk", f
     User.objects.filter(pk=pk).update(date_joined=moment())
 for pk in Order.objects.order_by("pk").values_list("pk", flat=True):
     Order.objects.filter(pk=pk).update(created_at=moment())
+
+# The generator copies the customer's email to the order but leaves the account unset.
+accounts = dict(User.objects.filter(is_staff=False).values_list("email", "pk"))
+for pk, email in Order.objects.filter(user__isnull=True).values_list("pk", "user_email"):
+    if email in accounts:
+        Order.objects.filter(pk=pk).update(user_id=accounts[email])
 """
 
 
