@@ -4,7 +4,14 @@ from collections.abc import Callable, Sequence
 
 from restock.saleor.client import SaleorClient
 from restock.saleor.runtime import Runtime
-from restock.saleor.seed import GROW_ACCOUNTS, create_products, plan_products, read_store
+from restock.saleor.seed import (
+    EXTENSION_APPS,
+    GROW_ACCOUNTS,
+    GROW_VOLATILE,
+    create_products,
+    plan_products,
+    read_store,
+)
 
 
 def _progress(message: str) -> None:
@@ -18,6 +25,7 @@ def build_store(
     products: int = 240,
     customers: int = 180,
     orders: int = 400,
+    digital: int = 60,
     seed: int = 0,
     log: Callable[[str], None] = _progress,
 ) -> None:
@@ -46,6 +54,10 @@ def build_store(
 
     log(f"{first}: adding {customers} customers and {orders} orders")
     script = GROW_ACCOUNTS.format(seed=seed, customers=customers, orders=orders)
+    runtime.manage(first, "shell", "-c", script)
+
+    log(f"{first}: adding digital content, customer history and app extensions")
+    script = GROW_VOLATILE.format(seed=seed, digital=digital, apps=EXTENSION_APPS)
     runtime.manage(first, "shell", "-c", script)
     runtime.manage(first, "update_search_indexes")
 

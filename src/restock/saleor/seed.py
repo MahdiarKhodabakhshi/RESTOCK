@@ -143,6 +143,136 @@ for pk, email in Order.objects.filter(user__isnull=True).values_list("pk", "user
         Order.objects.filter(pk=pk).update(user_id=accounts[email])
 """
 
+# Runs in Saleor's Django shell. The sample store has no records behind the parts
+# of the API that later releases remove or rename: digital goods, app extensions
+# and customer history. Without them no question about those fields has an answer.
+GROW_VOLATILE = """
+import random
+import uuid
+from django.db import transaction
+from saleor.account import CustomerEvents
+from saleor.account.models import CustomerEvent
+from saleor.app.models import App, AppExtension
+from saleor.order.models import Order, OrderLine
+from saleor.payment.models import Payment
+from saleor.product.models import DigitalContent, DigitalContentUrl, ProductVariant
+from saleor.site.models import SiteSettings
+
+random.seed({seed})
+
+with transaction.atomic():
+    SiteSettings.objects.update(
+        automatic_fulfillment_digital_products=True,
+        default_digital_max_downloads=5,
+        default_digital_url_valid_days=30,
+    )
+
+    variants = list(ProductVariant.objects.order_by("pk"))
+    for variant in random.sample(variants, {digital}):
+        default = random.random() < 0.4
+        DigitalContent.objects.create(
+            product_variant=variant,
+            content_file="digital_contents/variant-" + str(variant.pk) + ".zip",
+            use_default_settings=default,
+            automatic_fulfillment=random.random() < 0.5,
+            max_downloads=None if default else random.choice([1, 3, 5, 10]),
+            url_valid_days=None if default else random.choice([7, 14, 30, 90]),
+        )
+
+    for order in Order.objects.filter(user__isnull=False).order_by("created_at", "pk"):
+        CustomerEvent.objects.create(
+            user=order.user, order=order, type=CustomerEvents.PLACED_ORDER, date=order.created_at
+        )
+
+    lines = OrderLine.objects.filter(variant__digital_content__isnull=False)
+    lines = lines.select_related("order", "variant__digital_content")
+    for line in lines.order_by("created_at", "pk"):
+        downloads = random.choice([0, 0, 1, 1, 2, 3])
+        url = DigitalContentUrl.objects.create(
+            token=uuid.UUID(int=random.getrandbits(128)),
+            content=line.variant.digital_content,
+            line=line,
+            download_num=downloads,
+        )
+        DigitalContentUrl.objects.filter(pk=url.pk).update(created_at=line.order.created_at)
+        if downloads and line.order.user_id:
+            CustomerEvent.objects.create(
+                user=line.order.user,
+                order=line.order,
+                type=CustomerEvents.DIGITAL_LINK_DOWNLOADED,
+                parameters={{"order_line_pk": str(line.pk)}},
+                date=line.order.created_at,
+            )
+
+    for pk in Payment.objects.order_by("pk").values_list("pk", flat=True):
+        if random.random() < 0.1:
+            Payment.objects.filter(pk=pk).update(partial=True)
+
+    APPS = {apps!r}
+    for name, extensions in APPS:
+        slug = name.lower().replace(" ", "-")
+        app = App.objects.create(
+            name=name,
+            is_active=True,
+            type="thirdparty",
+            identifier="example." + slug,
+            app_url="https://" + slug + ".example.com/app",
+            version="1." + str(random.randrange(10)) + ".0",
+        )
+        for label, mount, target in extensions:
+            AppExtension.objects.create(
+                app=app,
+                label=label,
+                url="https://" + slug + ".example.com/" + label.lower().replace(" ", "-"),
+                mount=mount,
+                target=target,
+            )
+"""
+
+EXTENSION_APPS = (
+    (
+        "Stock Sync",
+        (
+            ("Sync stock", "product_overview_more_actions", "popup"),
+            ("Stock report", "navigation_catalog", "app_page"),
+            ("Reorder product", "product_details_more_actions", "popup"),
+        ),
+    ),
+    (
+        "Loyalty Points",
+        (
+            ("Points balance", "customer_details_more_actions", "popup"),
+            ("Loyalty dashboard", "navigation_customers", "app_page"),
+            ("Import members", "customer_overview_create", "popup"),
+            ("Award points", "order_details_more_actions", "popup"),
+        ),
+    ),
+    (
+        "Invoice Printer",
+        (
+            ("Print invoice", "order_details_more_actions", "popup"),
+            ("Batch print", "order_overview_more_actions", "app_page"),
+            ("Invoice archive", "navigation_orders", "app_page"),
+        ),
+    ),
+    (
+        "Promo Planner",
+        (
+            ("Campaign calendar", "navigation_discounts", "app_page"),
+            ("Plan promotion", "product_overview_create", "popup"),
+        ),
+    ),
+    (
+        "Content Translator",
+        (
+            ("Translate all", "navigation_translations", "app_page"),
+            ("Page drafts", "navigation_pages", "app_page"),
+            ("Export customers", "customer_overview_more_actions", "popup"),
+            ("Quick order", "order_overview_create", "popup"),
+        ),
+    ),
+)
+
 
 def read_store(client: SaleorClient) -> Store:
     data = _data(client.execute(STORE_QUERY))
