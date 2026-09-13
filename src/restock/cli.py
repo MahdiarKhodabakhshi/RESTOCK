@@ -9,6 +9,7 @@ from restock.saleor.build import build_store
 from restock.saleor.runtime import Runtime
 from restock.schema.diff import diff_schemas, query_density
 from restock.schema.fetch import DEFAULT_ROOT, fetch_schema, load_schema
+from restock.tasks.cli import add_commands as add_task_commands
 
 
 def _fetch(args: argparse.Namespace) -> int:
@@ -111,6 +112,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     status = actions.add_parser("status", help="list running processes")
     status.set_defaults(run=_saleor_status)
+
+    add_task_commands(commands)
 
     return parser
 
