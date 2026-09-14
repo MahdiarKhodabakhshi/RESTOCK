@@ -83,7 +83,7 @@ def test_progress_is_saved_along_the_way(shop_schema, shop_client, monkeypatch):
         checkpoint=lambda: saved.append(sum(t.verified is not None for t in tasks)),
     )
 
-    assert saved == [2, 4]
+    assert saved == [2, 4, 5]
 
 
 def test_the_prompt_shows_the_request_but_not_what_was_featured(shop_schema, shop_client):

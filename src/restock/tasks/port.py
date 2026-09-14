@@ -24,7 +24,7 @@ later release in one of four ways:
 
 from collections import Counter
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from graphql import (
@@ -50,7 +50,7 @@ WEAK = "weak"
 GONE = "gone"
 UNRESOLVED = "unresolved"
 
-ATTEMPT_TEMPERATURES = (0.0, 0.7)
+ATTEMPTS = ((0.0, False), (0.7, True))
 MIN_ANSWER_CHARS = 8
 CHECKPOINT_EVERY = 200
 
@@ -86,9 +86,12 @@ def port(
             problem=problem,
             schema=render_types(schema, _roots(task), _types(task, schema)),
         )
-        for temperature in ATTEMPT_TEMPERATURES:
+        # First attempt is cheap; thinking is reserved for a second try.
+        for temperature, thinking in ATTEMPTS:
             try:
-                completion = teacher.complete(prompt, temperature=temperature, thinking=True)
+                completion = teacher.complete(
+                    prompt, temperature=temperature, thinking=thinking
+                )
             except TeacherError as error:
                 log(f"teacher failed: {error}")
                 continue
@@ -108,11 +111,13 @@ def port(
     pending = [task for task in tasks if new not in task.later]
     outcomes: Counter = Counter()
     with ThreadPoolExecutor(workers) as pool:
-        results = zip(pending, pool.map(settle, pending), strict=True)
-        for done, (task, later) in enumerate(results, start=1):
+        futures = {pool.submit(settle, task): task for task in pending}
+        for done, future in enumerate(as_completed(futures), start=1):
+            task = futures[future]
+            later = future.result()
             task.later[new] = later
             outcomes[later.status] += 1
-            if done % CHECKPOINT_EVERY == 0:
+            if done % CHECKPOINT_EVERY == 0 or done == len(pending):
                 log(f"settled {done} of {len(pending)}: {dict(outcomes)}")
                 if checkpoint is not None:
                     checkpoint()

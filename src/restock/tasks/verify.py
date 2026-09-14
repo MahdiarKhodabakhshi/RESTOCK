@@ -10,7 +10,7 @@ then determines the answer for someone who can read the schema.
 import json
 from collections import Counter
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from graphql import GraphQLSchema
@@ -72,11 +72,13 @@ def verify(
     pending = [task for task in tasks if task.verified is None]
     outcomes: Counter = Counter()
     with ThreadPoolExecutor(workers) as pool:
-        results = zip(pending, pool.map(solve, pending), strict=True)
-        for done, (task, outcome) in enumerate(results, start=1):
+        futures = {pool.submit(solve, task): task for task in pending}
+        for done, future in enumerate(as_completed(futures), start=1):
+            task = futures[future]
+            outcome = future.result()
             task.verified = outcome
             outcomes[outcome] += 1
-            if done % CHECKPOINT_EVERY == 0:
+            if done % CHECKPOINT_EVERY == 0 or done == len(pending):
                 log(f"verified {done} of {len(pending)}: {dict(outcomes)}")
                 if checkpoint is not None:
                     checkpoint()

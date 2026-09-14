@@ -63,7 +63,7 @@ def test_a_renamed_field_is_ported_with_an_alias(new_shop_schema, new_shop_clien
     assert "Cannot query field 'sku' on type 'Variant'" in teacher.prompts[0]
     assert "  code: String" in teacher.prompts[0]
     assert "type Query {\n  product(id: ID, slug: String): Product" in teacher.prompts[0]
-    assert teacher.options[0] == {"temperature": 0.0, "thinking": True}
+    assert teacher.options[0] == {"temperature": 0.0, "thinking": False}
 
 
 def test_a_port_with_other_keys_keeps_its_own_answer(new_shop_schema, new_shop_client):
@@ -92,6 +92,7 @@ def test_a_second_attempt_is_made(new_shop_schema, new_shop_client):
 
     assert outcomes == {PORTED: 1}
     assert [options["temperature"] for options in teacher.options] == [0.0, 0.7]
+    assert [options["thinking"] for options in teacher.options] == [False, True]
 
 
 def test_a_match_on_a_small_answer_is_not_a_reference(new_shop_schema, new_shop_client):
@@ -138,7 +139,8 @@ def test_progress_is_saved_along_the_way(new_shop_schema, new_shop_client, monke
         checkpoint=lambda: saved.append(sum("2.0" in t.later for t in tasks)),
     )
 
-    assert saved == [2, 4]
+    # as_completed checkpoints every N and once more at the end.
+    assert saved == [2, 4, 5]
 
 
 def test_removed_information_is_gone(new_shop_schema, new_shop_client):
