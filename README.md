@@ -30,9 +30,10 @@ real and queries can be executed.
 
 ## What is in this repository
 
-The environment side of the method: the schema history, the simulated versions,
-the reward and a local Saleor that serves one store from several releases.
-Model training is not part of this code.
+The environment and the task set: the schema history, the simulated versions,
+the reward, a local Saleor that serves one store from several releases, and the
+pipeline that builds (question, query) tasks from that store. Model training is
+not part of this code.
 
 | Module | What it does |
 | --- | --- |
@@ -41,9 +42,10 @@ Model training is not part of this code.
 | `restock.schema.mutate` | Simulated versions: rename and remove fields, rewrite queries back to the real schema |
 | `restock.reward` | Episode reward and result comparison |
 | `restock.saleor.runtime` | Runs Postgres and Saleor releases with Apptainer |
-| `restock.saleor.seed` | Adds products, customers and orders to the sample store |
+| `restock.saleor.seed` | Adds products, customers, orders, digital content and app extensions to the sample store |
 | `restock.saleor.build` | Builds the store once and upgrades a copy for each later release |
 | `restock.saleor.client` | Executes GraphQL operations against a release |
+| `restock.tasks` | Builds the task set: focus sampling, teacher prompts, execution checks, verification, porting to later releases and the train/test split |
 
 ## How much does the API really change?
 
@@ -117,10 +119,11 @@ uv run restock saleor status
 uv run restock saleor down
 ```
 
-`build` creates the sample store on the first release, adds products, customers
-and orders to it, and then upgrades a copy of the database for each later
-release. Every release therefore serves the same store, and a query gives a
-different answer on two of them only when the API itself changed:
+`build` creates the sample store on the first release, adds products, customers,
+orders, digital content, customer history and app extensions to it, and then
+upgrades a copy of the database for each later release. Every release therefore
+serves the same store, and a query gives a different answer on two of them only
+when the API itself changed:
 
 ```python
 from restock.saleor.client import SaleorClient
@@ -132,4 +135,33 @@ query = "{ digitalContents(first: 1) { totalCount } }"
 SaleorClient(api_url("3.22"), token).execute(query).ok  # True
 SaleorClient(api_url("3.23"), token).execute(query).messages
 # ['Cannot query field "digitalContents" on type "Query".']
+```
+
+## Task set
+
+A local teacher model writes (question, query) pairs from a slice of the schema
+and real values from the store. A pair is kept only when the query validates,
+runs without errors and returns non-empty data. Each task is tagged with the
+schema coordinates it uses and whether the 3.20 → 3.23 diff touches any of them.
+Tasks whose request does not determine their answer are dropped; the rest are
+split so that related questions stay on one side, and the test tasks get a
+reference answer on 3.23.
+
+The teacher is served with vLLM under Slurm (`scripts/serve_model.sh`), because
+this machine kills GPU processes that are not in a Slurm job.
+
+```bash
+# Two replicas of the teacher, one GPU each
+sbatch scripts/serve_model.sh Qwen/Qwen3.8-27B teacher 8100
+sbatch scripts/serve_model.sh Qwen/Qwen3.8-27B teacher 8101
+
+uv run restock saleor up 3.20 3.23
+uv run restock tasks generate --requests 3000 \
+  --teacher http://127.0.0.1:8100/v1 http://127.0.0.1:8101/v1
+uv run restock tasks verify \
+  --teacher http://127.0.0.1:8100/v1 http://127.0.0.1:8101/v1
+uv run restock tasks split
+uv run restock tasks port \
+  --teacher http://127.0.0.1:8100/v1 http://127.0.0.1:8101/v1
+uv run restock tasks stats
 ```
