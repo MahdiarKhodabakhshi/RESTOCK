@@ -31,9 +31,9 @@ real and queries can be executed.
 ## What is in this repository
 
 The environment and the task set: the schema history, the simulated versions,
-the reward, a local Saleor that serves one store from several releases, and the
-pipeline that builds (question, query) tasks from that store. Model training is
-not part of this code.
+the reward, a local Saleor that serves one store from several releases, the
+pipeline that builds (question, query) tasks from that store, and the schema
+tools an agent uses during an episode. Model training is not part of this code.
 
 | Module | What it does |
 | --- | --- |
@@ -41,6 +41,8 @@ not part of this code.
 | `restock.schema.diff` | Structured diff of two schema versions, with reachability from `Query` |
 | `restock.schema.mutate` | Simulated versions: rename and remove fields, rewrite queries back to the real schema |
 | `restock.reward` | Episode reward and result comparison |
+| `restock.agent.tools` | Schema-reading tools (`read_type`, `search_fields`) with cumulative token counts |
+| `restock.agent.signal` | Version signal: release id and query-side breaking changes since training |
 | `restock.saleor.runtime` | Runs Postgres and Saleor releases with Apptainer |
 | `restock.saleor.seed` | Adds products, customers, orders, digital content and app extensions to the sample store |
 | `restock.saleor.build` | Builds the store once and upgrades a copy for each later release |
@@ -105,6 +107,27 @@ mutated = build_ast_schema(apply_mutations(document, mutations))
 
 # Raises InvalidQuery if the query uses a field the mutated version no longer has.
 query_for_saleor = rewrite_query(agent_query, mutated, mutations)
+```
+
+An episode binds tools to the schema the agent may see. The version signal is
+prompt context; only ``read_type`` and ``search_fields`` add to ``read_tokens``:
+
+```python
+from graphql import build_schema
+
+from restock.agent import SchemaTools, version_signal
+from restock.schema.diff import diff_schemas
+from restock.schema.fetch import load_schema
+
+old, new = build_schema(load_schema("3.20.0")), build_schema(load_schema("3.23.0"))
+tools = SchemaTools(
+    new,
+    version_signal("3.23.0", trained_on="3.20.0", changes=diff_schemas(old, new)),
+)
+tools.version_signal()           # free
+tools.read_type("Product")       # charged
+tools.search_fields("checkout")  # charged
+tools.read_tokens                # into restock.reward.reward
 ```
 
 ## Local Saleor
