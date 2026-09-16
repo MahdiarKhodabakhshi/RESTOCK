@@ -43,6 +43,8 @@ tools an agent uses during an episode. Model training is not part of this code.
 | `restock.reward` | Episode reward and result comparison |
 | `restock.agent.tools` | Schema-reading tools (`read_type`, `search_fields`) with cumulative token counts |
 | `restock.agent.signal` | Version signal: release id and query-side breaking changes since training |
+| `restock.agent.policies` | Baselines: always-read, memorised-only, and selective tool use |
+| `restock.agent.evaluate` | Episode loop and accuracy / read-token report by changed vs untouched |
 | `restock.saleor.runtime` | Runs Postgres and Saleor releases with Apptainer |
 | `restock.saleor.seed` | Adds products, customers, orders, digital content and app extensions to the sample store |
 | `restock.saleor.build` | Builds the store once and upgrades a copy for each later release |
@@ -187,4 +189,19 @@ uv run restock tasks split
 uv run restock tasks port \
   --teacher http://127.0.0.1:8100/v1 http://127.0.0.1:8101/v1
 uv run restock tasks stats
+```
+
+## Baselines
+
+Serve the student, then score a policy on a task file. Reports accuracy and mean
+schema tokens read, split into changed / deprecated / untouched. On a later
+release only tasks with a ``same`` or ``ported`` reference are scored.
+
+```bash
+sbatch scripts/serve_model.sh Qwen/Qwen3-8B student 8200
+
+uv run restock eval data/tasks/test.jsonl --policy always_read \
+  --release 3.20 --student http://127.0.0.1:8200/v1 --limit 50
+uv run restock eval data/tasks/test.jsonl --policy memorised \
+  --release 3.23 --trained-on 3.20.0 --student http://127.0.0.1:8200/v1
 ```
