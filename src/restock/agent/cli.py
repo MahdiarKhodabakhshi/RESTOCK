@@ -8,6 +8,7 @@ from graphql import build_schema
 from restock.agent.evaluate import evaluate, format_report
 from restock.agent.model import Student
 from restock.agent.policies import AlwaysRead, MemorisedOnly, Selective
+from restock.agent.sft import write_sft
 from restock.saleor.client import SaleorClient
 from restock.saleor.runtime import Runtime, api_url
 from restock.schema.diff import diff_schemas
@@ -41,6 +42,12 @@ def add_commands(commands: argparse._SubParsersAction) -> None:
     eval_cmd.add_argument("--data", type=Path, default=Path("data"), help="runtime directory")
     eval_cmd.add_argument("--limit", type=int, default=None, help="evaluate at most N tasks")
     eval_cmd.set_defaults(run=_eval)
+
+    sft = commands.add_parser("sft", help="write memorised-only supervised chat examples")
+    sft.add_argument("tasks", type=Path, help="JSONL task file")
+    sft.add_argument("--out", type=Path, required=True, help="output chat JSONL")
+    sft.add_argument("--version", default="3.20", help="API version the examples claim to target")
+    sft.set_defaults(run=_sft)
 
 
 def _eval(args: argparse.Namespace) -> int:
@@ -78,6 +85,12 @@ def _eval(args: argparse.Namespace) -> int:
         student.close()
         client.close()
 
-    # Match later keys: tasks store later under short release labels like "3.23".
     print(format_report(report))
+    return 0
+
+
+def _sft(args: argparse.Namespace) -> int:
+    tasks = read_tasks(args.tasks)
+    count = write_sft(args.out, tasks, version=args.version)
+    print(f"{count} examples -> {args.out}")
     return 0

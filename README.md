@@ -205,3 +205,9 @@ uv run restock eval data/tasks/test.jsonl --policy always_read \
 uv run restock eval data/tasks/test.jsonl --policy memorised \
   --release 3.23 --trained-on 3.20.0 --student http://127.0.0.1:8200/v1
 ```
+
+Supervised examples for the memorised baseline (no schema in the prompt):
+
+```bash
+uv run restock sft data/tasks/train.jsonl --out data/sft/memorised_3.20.jsonl --version 3.20
+```
