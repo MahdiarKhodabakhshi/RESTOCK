@@ -9,8 +9,8 @@ SYSTEM = (
 
 QUERY_INSTRUCTIONS = """\
 The query
-- is a single read-only operation, written as `{{ ... }}` without a name, variables, \
-fragment definitions or directives;
+- is a single read-only operation that starts with { and ends with }, without a name, \
+variables, fragment definitions or directives;
 - uses only fields, arguments and enum values that the schema you were given allows;
 - passes `first` (20 at most) to every connection it reads;
 - selects the fields the request asks for and no others.
