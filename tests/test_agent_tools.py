@@ -89,3 +89,12 @@ def test_read_tokens_plug_into_the_episode_reward():
     session.read_type("Product")
     assert reward(True, session.read_tokens) < 1.0
     assert reward(True, session.read_tokens) > 0.0
+
+
+def test_read_query_side_charges_every_reachable_type():
+    session = tools()
+    result = session.read_query_side()
+    assert "type Product" in result.text
+    assert "type Money" in result.text
+    assert "input ProductFilter" in result.text
+    assert session.read_tokens == result.tokens > 0

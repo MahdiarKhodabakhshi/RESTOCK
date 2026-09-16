@@ -80,11 +80,30 @@ class SchemaTools:
             return self._charge(f"No fields matching {needle!r}.")
         return self._charge("\n".join(hits))
 
+    def read_query_side(self) -> ToolResult:
+        """Return compact SDL for every type reachable from ``Query``.
+
+        Used by the always-read baseline: the whole query side is charged up
+        front so the model does not choose what to look up.
+        """
+        parts = []
+        for name in sorted(self._query_side):
+            type_ = self._named(name)
+            if type_ is not None:
+                parts.append(render_type(type_))
+        if not parts:
+            return self._charge("No query-side types.")
+        return self._charge("\n\n".join(parts))
+
     def _named(self, name: str) -> GraphQLNamedType | None:
         type_ = self.schema.type_map.get(name)
         if type_ is None or name.startswith("__") or is_specified_scalar_type(type_):
             return None
         return type_
+
+    def observe(self, text: str) -> ToolResult:
+        """Charge arbitrary tool text (errors, unknown tools)."""
+        return self._charge(text)
 
     def _charge(self, text: str) -> ToolResult:
         tokens = self.count_tokens(text)
