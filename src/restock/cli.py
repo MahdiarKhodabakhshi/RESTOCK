@@ -5,6 +5,7 @@ from pathlib import Path
 import httpx
 from graphql import build_schema
 
+from restock.agent.cli import add_commands as add_eval_commands
 from restock.saleor.build import build_store
 from restock.saleor.runtime import Runtime
 from restock.schema.diff import diff_schemas, query_density
@@ -114,6 +115,7 @@ def build_parser() -> argparse.ArgumentParser:
     status.set_defaults(run=_saleor_status)
 
     add_task_commands(commands)
+    add_eval_commands(commands)
 
     return parser
 
