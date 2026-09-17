@@ -42,7 +42,7 @@ def main() -> None:
 
     model = AutoModelForCausalLM.from_pretrained(
         args.model,
-        torch_dtype="bfloat16",
+        dtype="bfloat16",
         attn_implementation="sdpa",
         trust_remote_code=True,
     )
@@ -65,7 +65,7 @@ def main() -> None:
         gradient_accumulation_steps=args.grad_accum,
         learning_rate=args.lr,
         lr_scheduler_type="cosine",
-        warmup_ratio=0.03,
+        warmup_steps=50,
         logging_steps=10,
         save_strategy="epoch",
         bf16=True,
