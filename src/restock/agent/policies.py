@@ -138,11 +138,12 @@ class AlwaysRead:
         self.max_keywords = max_keywords
 
     def answer(self, student: Student, tools: SchemaTools, question: str) -> str | None:
-        schema = "\n\n".join(self._lookup(tools, question))
+        schema = "\n\n".join(self.schema_for(tools, question))
         prompt = always_read_prompt(signal=tools.version_signal(), schema=schema, question=question)
         return completion_query(student.complete(prompt))
 
-    def _lookup(self, tools: SchemaTools, question: str) -> list[str]:
+    def schema_for(self, tools: SchemaTools, question: str) -> list[str]:
+        """Compact SDL slices gathered for ``question`` (charged on ``tools``)."""
         seen: set[str] = set()
         texts: list[str] = []
         for word in _keywords(question)[: self.max_keywords]:

@@ -210,6 +210,8 @@ Supervised examples for the memorised baseline (no schema in the prompt):
 
 ```bash
 uv run restock sft data/tasks/train.jsonl --out data/sft/memorised_3.20.jsonl --version 3.20
+uv run restock sft data/tasks/train.jsonl --out data/sft/always_read_3.20.jsonl \
+  --version 3.20 --with-schema --schema-version 3.20.0
 
 # LoRA SFT under Slurm, then serve the merged weights
 sbatch scripts/sft_memorised.sh

@@ -8,7 +8,7 @@ from graphql import build_schema
 from restock.agent.evaluate import evaluate, format_report
 from restock.agent.model import Student
 from restock.agent.policies import AlwaysRead, MemorisedOnly, Selective
-from restock.agent.sft import write_sft
+from restock.agent.sft import write_always_read_sft, write_sft
 from restock.saleor.client import SaleorClient
 from restock.saleor.runtime import Runtime, api_url
 from restock.schema.diff import diff_schemas
@@ -43,10 +43,20 @@ def add_commands(commands: argparse._SubParsersAction) -> None:
     eval_cmd.add_argument("--limit", type=int, default=None, help="evaluate at most N tasks")
     eval_cmd.set_defaults(run=_eval)
 
-    sft = commands.add_parser("sft", help="write memorised-only supervised chat examples")
+    sft = commands.add_parser("sft", help="write supervised chat examples for a baseline")
     sft.add_argument("tasks", type=Path, help="JSONL task file")
     sft.add_argument("--out", type=Path, required=True, help="output chat JSONL")
     sft.add_argument("--version", default="3.20", help="API version the examples claim to target")
+    sft.add_argument(
+        "--with-schema",
+        action="store_true",
+        help="always-read examples: include a keyword schema slice in each prompt",
+    )
+    sft.add_argument(
+        "--schema-version",
+        default=None,
+        help="schema tag to load for --with-schema (default: --version as X.Y.0)",
+    )
     sft.set_defaults(run=_sft)
 
 
@@ -91,6 +101,14 @@ def _eval(args: argparse.Namespace) -> int:
 
 def _sft(args: argparse.Namespace) -> int:
     tasks = read_tasks(args.tasks)
-    count = write_sft(args.out, tasks, version=args.version)
+    if args.with_schema:
+        tag = args.schema_version or (
+            args.version if args.version.count(".") >= 2 else f"{args.version}.0"
+        )
+        fetch_schema(tag, args.root)
+        schema = build_schema(load_schema(tag, args.root))
+        count = write_always_read_sft(args.out, tasks, schema, version=args.version)
+    else:
+        count = write_sft(args.out, tasks, version=args.version)
     print(f"{count} examples -> {args.out}")
     return 0
