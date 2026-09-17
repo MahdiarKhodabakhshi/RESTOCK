@@ -36,7 +36,9 @@ Saleor schema (query side):
 
 Request: {question}
 
-Write the GraphQL query that answers the request. Use only the schema above.
+Write the GraphQL query that answers the request. The schema block is the only
+API that exists for this request: every type, field and argument name must appear
+in it exactly as written. Do not reuse names from memory that are absent above.
 {instructions}"""
 
 SELECTIVE = """\

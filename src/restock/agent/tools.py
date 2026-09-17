@@ -62,20 +62,23 @@ class SchemaTools:
         if not needle:
             return self._charge("No matches.")
         needle_lower = needle.lower()
-        hits: list[str] = []
+        root_hits: list[str] = []
+        other_hits: list[str] = []
+        query_name = self.schema.query_type.name if self.schema.query_type else "Query"
         for type_name in sorted(self._query_side):
             type_ = self.schema.type_map[type_name]
             fields = getattr(type_, "fields", None)
             if not fields:
                 continue
             for field_name, gql_field in fields.items():
-                coordinate = f"{type_name}.{field_name}"
-                if needle_lower in type_name.lower() or needle_lower in field_name.lower():
-                    hits.append(f"{coordinate}: {gql_field.type}")
-                if len(hits) >= limit:
-                    break
-            if len(hits) >= limit:
-                break
+                if needle_lower not in type_name.lower() and needle_lower not in field_name.lower():
+                    continue
+                line = f"{type_name}.{field_name}: {gql_field.type}"
+                if type_name == query_name:
+                    root_hits.append(line)
+                else:
+                    other_hits.append(line)
+        hits = (root_hits + other_hits)[:limit]
         if not hits:
             return self._charge(f"No fields matching {needle!r}.")
         return self._charge("\n".join(hits))

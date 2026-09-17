@@ -77,6 +77,19 @@ def test_search_fields_respects_the_limit():
     assert len(result.text.splitlines()) == 2
 
 
+def test_search_fields_lists_query_root_hits_first():
+    schema = build_schema("""
+    type Query { appExtensions: [AppExtension!]! }
+    type AppExtension { id: ID! }
+    type App { extensions: [AppExtension!]! }
+    """)
+    session = SchemaTools(schema, version_signal("3.23"))
+    result = session.search_fields("app", limit=3)
+    lines = result.text.splitlines()
+    assert lines[0].startswith("Query.appExtensions")
+    assert any(line.startswith("App.") or line.startswith("AppExtension.") for line in lines)
+
+
 def test_custom_token_counter_is_used_for_accounting():
     session = tools(count_tokens=lambda text: 7)
     result = session.read_type("Money")

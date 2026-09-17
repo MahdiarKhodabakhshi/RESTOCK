@@ -43,6 +43,21 @@ def test_always_read_searches_keywords_and_reads_matching_types():
     assert "type Order" not in seen[0]
 
 
+def test_always_read_pulls_in_field_argument_input_types():
+    schema = build_schema("""
+    type Query {
+      appExtensions(filter: AppExtensionFilterInput, first: Int): [AppExtension!]!
+    }
+    input AppExtensionFilterInput { mountName: [String!] }
+    type AppExtension { label: String!, url: String! }
+    """)
+    session = SchemaTools(schema, version_signal("3.23"))
+    texts = AlwaysRead().schema_for(session, "List app extensions mounted on product details")
+    joined = "\n".join(texts)
+    assert "input AppExtensionFilterInput" in joined
+    assert "mountName" in joined
+
+
 def test_memorised_prompt_contains_no_schema_sdl():
     seen: list[str] = []
 

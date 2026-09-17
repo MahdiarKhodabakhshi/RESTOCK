@@ -4,6 +4,8 @@ import json
 import re
 from typing import Any
 
+from graphql import get_named_type, is_enum_type, is_input_object_type
+
 from restock.agent.episode import completion_query
 from restock.agent.model import Student
 from restock.agent.prompt import (
@@ -143,21 +145,33 @@ class AlwaysRead:
         return completion_query(student.complete(prompt))
 
     def schema_for(self, tools: SchemaTools, question: str) -> list[str]:
-        """Compact SDL slices gathered for ``question`` (charged on ``tools``)."""
+        """Compact SDL slices gathered for ``question`` (charged on ``tools``).
+
+        Field argument input types and enums are pulled in with each hit, so a
+        lookup for ``appExtensions`` also shows ``AppExtensionFilterInput``.
+        """
         seen: set[str] = set()
         texts: list[str] = []
+
+        def remember(type_name: str) -> None:
+            if type_name in seen or len(seen) >= self.max_types:
+                return
+            seen.add(type_name)
+            texts.append(tools.read_type(type_name).text)
+
         for word in _keywords(question)[: self.max_keywords]:
-            hits = tools.search_fields(word, limit=10).text
+            hits = tools.search_fields(word, limit=15).text
             for line in hits.splitlines():
-                type_name = _type_from_hit(line)
-                if type_name is None or type_name in seen:
+                type_name, field_name = _hit_parts(line)
+                if type_name is None:
                     continue
-                seen.add(type_name)
-                texts.append(tools.read_type(type_name).text)
+                remember(type_name)
+                for related in _argument_types(tools, type_name, field_name):
+                    remember(related)
                 if len(seen) >= self.max_types:
                     return texts
         if not texts:
-            texts.append(tools.read_type("Query").text)
+            remember("Query")
         return texts
 
 
@@ -205,13 +219,43 @@ def _keywords(question: str) -> list[str]:
     return words
 
 
-def _type_from_hit(line: str) -> str | None:
+def _hit_parts(line: str) -> tuple[str | None, str | None]:
     if ":" not in line or line.startswith("No ") or line.startswith("Type not"):
-        return None
-    coordinate = line.split(":", 1)[0].strip()
+        return None, None
+    coordinate = line.split(":", 1)[0].strip().split("(", 1)[0]
     if "." not in coordinate:
-        return None
-    return coordinate.split(".", 1)[0]
+        return None, None
+    type_name, field_name = coordinate.split(".", 1)
+    return type_name, field_name
+
+
+def _argument_types(
+    tools: SchemaTools, type_name: str, field_name: str | None = None
+) -> list[str]:
+    """Input-object and enum names used as arguments on a type (or one field)."""
+    type_ = tools.schema.type_map.get(type_name)
+    fields = getattr(type_, "fields", None)
+    if not fields:
+        return []
+    if field_name is not None:
+        field = fields.get(field_name)
+        selected = [field] if field is not None else []
+    else:
+        selected = list(fields.values())
+    found: list[str] = []
+    seen: set[str] = set()
+    for field in selected:
+        args = getattr(field, "args", None)
+        if not args:
+            continue
+        for arg in args.values():
+            named = get_named_type(arg.type)
+            if named.name in seen:
+                continue
+            if is_input_object_type(named) or is_enum_type(named):
+                seen.add(named.name)
+                found.append(named.name)
+    return found
 
 
 def _assistant_with_tools(message: dict[str, Any]) -> dict[str, Any]:
