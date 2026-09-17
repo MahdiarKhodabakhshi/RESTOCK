@@ -106,8 +106,11 @@ def _sft(args: argparse.Namespace) -> int:
             args.version if args.version.count(".") >= 2 else f"{args.version}.0"
         )
         fetch_schema(tag, args.root)
-        schema = build_schema(load_schema(tag, args.root))
-        count = write_always_read_sft(args.out, tasks, schema, version=args.version)
+        sdl = load_schema(tag, args.root)
+        schema = build_schema(sdl)
+        count = write_always_read_sft(
+            args.out, tasks, schema, version=args.version, sdl=sdl, mutate_prob=0.5
+        )
     else:
         count = write_sft(args.out, tasks, version=args.version)
     print(f"{count} examples -> {args.out}")

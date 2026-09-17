@@ -165,3 +165,34 @@ def rewrite_query(query: str, mutated: GraphQLSchema, mutations: Iterable[Mutati
             return replace(node, name=NameNode(value=original), alias=node.alias or node.name)
 
     return print_ast(visit(document, TypeInfoVisitor(type_info, RestoreNames())))
+
+
+def rename_query_fields(query: str, real: GraphQLSchema, mutations: Iterable[Mutation]) -> str:
+    """Rewrite a query on ``real`` so it names fields as a mutated schema would.
+
+    Used to build always-read training targets that match a schema slice with
+    renames applied. Removals are not supported here: the query must not select
+    a removed field.
+    """
+    renames = {
+        (mutation.type_name, mutation.field): mutation.new_name
+        for mutation in mutations
+        if isinstance(mutation, Rename)
+    }
+    if not renames:
+        return query
+    document = parse(query)
+    errors = validate(real, document)
+    if errors:
+        raise InvalidQuery(errors)
+    type_info = TypeInfo(real)
+
+    class ApplyRenames(Visitor):
+        def leave_field(self, node: FieldNode, *_):
+            parent = type_info.get_parent_type()
+            new_name = renames.get((parent.name, node.name.value)) if parent else None
+            if new_name is None:
+                return None
+            return replace(node, name=NameNode(value=new_name))
+
+    return print_ast(visit(document, TypeInfoVisitor(type_info, ApplyRenames())))

@@ -163,3 +163,15 @@ def test_untouched_query_is_unchanged_in_meaning():
 def test_query_using_the_old_schema_is_rejected(stale_query):
     with pytest.raises(InvalidQuery, match="Cannot query field"):
         rewrite_query(stale_query, MUTATED, MUTATIONS)
+
+
+def test_rename_query_fields_matches_the_mutated_schema():
+    from restock.schema.mutate import rename_query_fields
+
+    document = parse(SDL)
+    schema = build_ast_schema(document)
+    mutations = [Rename("Product", "name", "nameValue")]
+    renamed = rename_query_fields("{ product(id: \"1\") { name } }", schema, mutations)
+    assert "nameValue" in renamed
+    mutated = build_ast_schema(apply_mutations(document, mutations))
+    assert "name" in rewrite_query(renamed, mutated, mutations)
