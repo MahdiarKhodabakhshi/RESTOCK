@@ -175,6 +175,25 @@ class AlwaysRead:
         return texts
 
 
+class Efficiency:
+    """Single-turn selective reads: ``<read>Type</read>`` tags then a query.
+
+    Used for the efficiency-RL baseline and for evaluating checkpoints trained
+    with GRPO on that format.
+    """
+
+    name = "efficiency"
+
+    def answer(self, student: Student, tools: SchemaTools, question: str) -> str | None:
+        from restock.agent.efficiency import apply_reads, efficiency_prompt, parse_efficiency
+
+        prompt = efficiency_prompt(signal=tools.version_signal(), question=question)
+        message = student.complete(prompt)
+        parsed = parse_efficiency(message.get("content") or "")
+        apply_reads(tools, parsed.reads)
+        return parsed.query
+
+
 class Selective:
     """Let the model call schema tools, then write a query.
 

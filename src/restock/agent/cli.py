@@ -7,7 +7,7 @@ from graphql import build_schema
 
 from restock.agent.evaluate import evaluate, format_report
 from restock.agent.model import Student
-from restock.agent.policies import AlwaysRead, MemorisedOnly, Selective
+from restock.agent.policies import AlwaysRead, Efficiency, MemorisedOnly, Selective
 from restock.agent.sft import write_always_read_sft, write_sft
 from restock.saleor.client import SaleorClient
 from restock.saleor.runtime import Runtime, api_url
@@ -18,6 +18,7 @@ from restock.tasks.task import read_tasks
 
 POLICIES = {
     "always_read": AlwaysRead,
+    "efficiency": Efficiency,
     "memorised": MemorisedOnly,
     "selective": Selective,
 }
