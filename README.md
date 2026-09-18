@@ -216,4 +216,10 @@ uv run restock sft data/tasks/train.jsonl --out data/sft/always_read_3.20.jsonl 
 # LoRA SFT under Slurm, then serve the merged weights
 sbatch scripts/sft_memorised.sh
 sbatch scripts/serve_model.sh data/models/memorised-3.20/merged memorised 8201
+
+# Efficiency-RL (GRPO) from the memorised weights; Saleor 3.20 must be up
+sbatch scripts/grpo_efficiency.sh
+sbatch scripts/serve_model.sh data/models/efficiency-3.20/merged efficiency 8200
+uv run restock eval data/tasks/test.jsonl --policy efficiency \
+  --release 3.20 --student http://127.0.0.1:8200/v1 --model efficiency
 ```
